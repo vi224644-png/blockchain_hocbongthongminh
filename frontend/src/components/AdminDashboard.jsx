@@ -16,48 +16,54 @@ const AdminDashboard = () => {
             const contract = await getContract();
             if (!contract) return alert("Vui lòng kết nối ví MetaMask!");
 
-            // 1. Xử lý dữ liệu đầu vào
-            const amountWei = ethers.parseEther(form.amount); // Đổi ETH sang Wei
+            // 1. Xử lý dữ liệu Blockchain
+            const amountWei = ethers.parseEther(form.amount); // Đổi ETH sang Wei (BigInt)
             const slots = BigInt(form.slots);
             
-            // Tự động set Deadline là 30 ngày kể từ hiện tại (tính bằng giây)
+            // Deadline: 30 ngày tính từ hiện tại
             const deadline = BigInt(Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60));
 
-            // Tính tổng tiền cần nạp vào quỹ (Amount * Slots)
+            // Tổng tiền phải nạp
             const totalVal = amountWei * slots;
 
-            // 2. Gọi Smart Contract (Phải đủ 4 tham số + overrides value)
+            // 2. Gọi Smart Contract
             console.log("Đang gửi Transaction...");
             const tx = await contract.createScholarship(
-                form.name,  // title
-                amountWei,  // amount
-                slots,      // slots
-                deadline,   // deadline
-                { value: totalVal } // Gửi kèm ETH
+                form.name,  
+                amountWei,  
+                slots,      
+                deadline,   
+                { value: totalVal } 
             );
             
             console.log("Hash:", tx.hash);
-            await tx.wait(); // Chờ xác nhận trên blockchain
+            await tx.wait(); // Chờ xác nhận
             
-            // 3. Lấy ID học bổng vừa tạo để lưu vào DB
-            // Vì biến nextScholarshipId tăng lên 1 sau khi tạo, nên ID vừa tạo là (next - 1)
+            // 3. Lấy dữ liệu để lưu Backend
+            // Lấy ID vừa tạo (nextId - 1)
             const nextId = await contract.nextScholarshipId();
             const currentId = Number(nextId) - 1;
 
-            // 4. Lưu vào MongoDB (Backend API)
+            // Lấy địa chỉ ví người tạo (Sponsor) từ contract runner (Ethers v6)
+            const sponsorAddress = await contract.runner.getAddress();
+
+            // 4. Lưu vào MongoDB (CẬP NHẬT THEO SCHEMA MỚI)
             await createScholarshipDB({
-                blockchainId: currentId, 
+                contractId: currentId,          // Sửa từ blockchainId -> contractId
                 title: form.name,
-                description: form.desc
+                description: form.desc,
+                sponsor: sponsorAddress,        // Thêm trường sponsor
+                amount: amountWei.toString(),   // Lưu Amount dưới dạng String
+                active: true                    // Mặc định là true
             });
 
-            alert("✅ Tạo học bổng thành công! ID: " + currentId);
+            alert(`✅ Tạo học bổng thành công! ID: ${currentId}`);
+            
             // Reset form
             setForm({ name: '', amount: '', slots: '', desc: '' });
 
         } catch (err) {
             console.error(err);
-            // Hiển thị lỗi rõ ràng hơn
             alert("❌ Lỗi: " + (err.reason || err.message));
         } finally {
             setIsLoading(false);
