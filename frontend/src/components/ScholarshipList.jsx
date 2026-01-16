@@ -1,104 +1,69 @@
 import React, { useEffect, useState } from 'react';
-import { getContract } from '../services/eth';
-import { fetchScholarshipsDB } from '../services/api';
+import { getManagerContract, getTokenContract } from '../services/eth';
 import { ethers } from 'ethers';
 
 const ScholarshipList = () => {
-    const [scholarships, setScholarships] = useState([]);
+    const [list, setList] = useState([]);
 
     useEffect(() => {
-        const loadData = async () => {
+        const load = async () => {
             try {
-                // Lấy dữ liệu từ MongoDB
-                const dbData = await fetchScholarshipsDB();
-                
-                // Lấy dữ liệu từ Blockchain
-                const contract = await getContract();
-                if (!contract) return; // Nếu chưa kết nối ví thì thôi
+                const manager = await getManagerContract();
+                const token = await getTokenContract();
+                if (!manager || !token) return;
 
-                const count = await contract.getScholarshipCount();
-                
-                const loadedItems = [];
-                for (let i = 1; i <= Number(count); i++) {
-                    const sc = await contract.scholarships(i);
-                    const meta = dbData.find(d => d.blockchainId === i);
-                    
-                    loadedItems.push({
-                        id: i,
-                        name: sc.name,
-                        // FIX: Ethers v6 dùng ethers.formatEther
-                        amount: ethers.formatEther(sc.amount), 
-                        slots: Number(sc.availableSlots),
-                        desc: meta ? meta.description : "Đang tải mô tả..."
+                const count = await manager.nextScholarshipId();
+                const decimals = await token.decimals();
+                const symbol = await token.symbol(); // Lấy chữ "WCT"
+
+                const items = [];
+                for (let i = 0; i < Number(count); i++) {
+                    const s = await manager.scholarships(i);
+                    items.push({
+                        id: Number(s.id),
+                        title: s.title,
+                        amount: ethers.formatUnits(s.amount, decimals), // Đổi Wei sang số thường
+                        symbol: symbol,
+                        slots: Number(s.slots),
+                        deadline: new Date(Number(s.deadline) * 1000).toLocaleDateString()
                     });
                 }
-                setScholarships(loadedItems);
-            } catch (error) {
-                console.error("Lỗi tải dữ liệu:", error);
+                setList(items);
+            } catch (e) {
+                console.error(e);
             }
         };
-        loadData();
+        load();
     }, []);
 
     return (
-    <div className="max-w-7xl mx-auto px-4 mt-12">
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-10 tracking-tight">
-            Danh Sách Học Bổng Đang Mở
-        </h2>
-
-        {scholarships.length === 0 && (
-            <div className="text-center py-20 text-gray-500 text-lg animate-pulse">
-                Đang tải dữ liệu học bổng...
-            </div>
-        )}
-
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {scholarships.map((sc) => (
-                <div
-                    key={sc.id}
-                    className="
-                        bg-white rounded-2xl shadow-md hover:shadow-xl 
-                        transition-all duration-300 p-7 border border-gray-100
-                        hover:-translate-y-1 group
-                    "
-                >
-                    {/* Title */}
-                    <h3 className="text-xl font-bold text-gray-900 mb-3 group-hover:text-indigo-600 transition">
-                        {sc.name}
-                    </h3>
-
-                    {/* Description */}
-                    <p className="text-gray-600 mb-5 text-sm leading-relaxed line-clamp-3">
-                        {sc.desc}
-                    </p>
-
-                    {/* Amount + Slots */}
-                    <div className="flex items-center justify-between mb-6">
-                        <span className="font-semibold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-lg text-sm">
-                            {sc.amount} ETH / suất
-                        </span>
-                        <span className="text-gray-500 text-sm">
-                            Còn: <span className="font-bold">{sc.slots}</span> suất
-                        </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {list.map(item => (
+                <div key={item.id} className="bg-white p-6 rounded-xl shadow border hover:-translate-y-1 transition duration-300">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">{item.title}</h3>
+                    <div className="flex justify-between items-end">
+                        <div>
+                            <p className="text-gray-500 text-sm">Giá trị:</p>
+                            <span className="text-2xl font-bold text-green-600">
+                                {Number(item.amount).toLocaleString()} {item.symbol}
+                            </span>
+                        </div>
+                        <div className="text-right">
+                             <span className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm font-semibold">
+                                {item.slots} suất
+                            </span>
+                        </div>
                     </div>
-
-                    {/* Button */}
-                    <button
-                        className="
-                            w-full bg-gradient-to-r from-indigo-500 to-indigo-600 
-                            hover:from-indigo-600 hover:to-indigo-700
-                            text-white font-semibold py-2.5 rounded-xl
-                            shadow hover:shadow-lg transition-all duration-300
-                        "
-                    >
-                        Nộp Đơn Ứng Tuyển
-                    </button>
+                    <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                        <span className="text-xs text-gray-400">Hạn: {item.deadline}</span>
+                        <button className="text-indigo-600 font-semibold text-sm hover:underline">
+                            Xem chi tiết →
+                        </button>
+                    </div>
                 </div>
             ))}
         </div>
-    </div>
-);
-
+    );
 };
 
 export default ScholarshipList;

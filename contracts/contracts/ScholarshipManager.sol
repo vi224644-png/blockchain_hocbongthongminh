@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract ScholarshipManager is Ownable { 
-    enum Status { Created, Applied, Approved, Paid }
+    IERC20 public paymentToken; // Biến lưu địa chỉ đồng WCT
 
     struct Scholarship {
         uint256 id;
@@ -21,6 +22,8 @@ contract ScholarshipManager is Ownable {
         Status status;
     }
 
+    enum Status { Created, Applied, Approved, Paid }
+
     uint256 public nextScholarshipId;
     mapping(uint256 => Scholarship) public scholarships;
     mapping(uint256 => Application[]) public applications;
@@ -30,20 +33,26 @@ contract ScholarshipManager is Ownable {
     event ApplicationApproved(uint256 indexed id, uint256 index, address applicant);
     event Paid(uint256 indexed id, uint256 index, address to, uint256 amount);
 
-    // Constructor chuẩn cho OpenZeppelin v5.x (cần truyền msg.sender)
-    constructor() Ownable(msg.sender) {}
+    // Constructor nhận địa chỉ WCT
+    constructor(address _tokenAddress) Ownable(msg.sender) {
+        require(_tokenAddress != address(0), "Dia chi Token khong hop le");
+        paymentToken = IERC20(_tokenAddress);
+    }
 
-    // 1. Tạo học bổng (Yêu cầu nạp ETH vào contract luôn để đảm bảo có tiền trả sau này)
+    // 1. Tạo học bổng (Admin cần Approve WCT trước ở Frontend)
     function createScholarship(
         string memory title,
         uint256 amount,
         uint256 slots,
         uint256 deadline
-    ) external payable onlyOwner {
-        require(deadline > block.timestamp, "Deadline must be in the future");
+    ) external onlyOwner {
+        require(deadline > block.timestamp, "Deadline phai o tuong lai");
         
-        // Bắt buộc người tạo phải gửi đủ tiền (amount * slots) vào contract
-        require(msg.value >= amount * slots, "Must fund the scholarship (msg.value < total amount)");
+        uint256 totalRequired = amount * slots;
+        
+        // Rút WCT từ ví Admin vào Contract
+        bool success = paymentToken.transferFrom(msg.sender, address(this), totalRequired);
+        require(success, "Khong the rut Token. Vui long kiem tra Approve!");
 
         scholarships[nextScholarshipId] = Scholarship({
             id: nextScholarshipId,
@@ -55,66 +64,37 @@ contract ScholarshipManager is Ownable {
         });
 
         emit ScholarshipCreated(nextScholarshipId, title, amount, slots, deadline);
-
         nextScholarshipId++;
     }
 
-    // 2. Nộp đơn xin học bổng
+    // 2. Nộp hồ sơ
     function applyForScholarship(uint256 scholarshipId, string memory metadata) external {
         Scholarship storage s = scholarships[scholarshipId];
-        require(s.deadline > 0, "Scholarship does not exist");
-        require(block.timestamp <= s.deadline, "Deadline passed");
+        require(s.deadline > block.timestamp, "Da qua han nop ho so");
 
-        applications[scholarshipId].push(
-            Application({
-                applicant: msg.sender,
-                metadata: metadata,
-                status: Status.Applied
-            })
-        );
-
+        applications[scholarshipId].push(Application(msg.sender, metadata, Status.Applied));
         s.totalApplicants++;
-
         emit Applied(scholarshipId, msg.sender, s.totalApplicants - 1);
     }
 
-    // 3. Duyệt hồ sơ (Chỉ Owner)
+    // 3. Duyệt hồ sơ
     function approveApplicant(uint256 scholarshipId, uint256 index) external onlyOwner {
-        require(index < applications[scholarshipId].length, "Invalid application index");
-
-        Application storage a = applications[scholarshipId][index];
-        require(a.status == Status.Applied, "Application not in Applied status");
-
-        a.status = Status.Approved;
-
-        emit ApplicationApproved(scholarshipId, index, a.applicant);
+        require(applications[scholarshipId][index].status == Status.Applied, "Trang thai khong hop le");
+        applications[scholarshipId][index].status = Status.Approved;
+        emit ApplicationApproved(scholarshipId, index, applications[scholarshipId][index].applicant);
     }
 
-    // 4. Giải ngân (Trả tiền cho sinh viên đã được duyệt)
+    // 4. Trả thưởng (Chuyển WCT cho sinh viên)
     function payApplicant(uint256 scholarshipId, uint256 index) external onlyOwner {
-        require(index < applications[scholarshipId].length, "Invalid application index");
-
         Application storage a = applications[scholarshipId][index];
         Scholarship storage s = scholarships[scholarshipId];
 
-        require(a.status == Status.Approved, "Application not approved yet");
-        require(address(this).balance >= s.amount, "Contract insufficient funds");
+        require(a.status == Status.Approved, "Ho so chua duoc duyet");
+        require(paymentToken.balanceOf(address(this)) >= s.amount, "Contract het tien");
 
         a.status = Status.Paid;
-
-        // Chuyển tiền cho sinh viên
-        (bool success, ) = payable(a.applicant).call{value: s.amount}("");
-        require(success, "Transfer failed");
+        require(paymentToken.transfer(a.applicant, s.amount), "Chuyen tien that bai");
 
         emit Paid(scholarshipId, index, a.applicant, s.amount);
     }
-
-    // Rút tiền khẩn cấp (Chỉ Owner)
-    function emergencyWithdraw() external onlyOwner {
-        (bool success, ) = payable(owner()).call{value: address(this).balance}("");
-        require(success, "Transfer failed");
-    }
-
-    // Nhận ETH tự do (nếu có ai gửi nhầm hoặc donate)
-    receive() external payable {}
 }

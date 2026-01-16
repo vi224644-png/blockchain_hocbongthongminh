@@ -1,157 +1,91 @@
 import React, { useState } from 'react';
-import { getContract } from '../services/eth';
-import { createScholarshipDB } from '../services/api';
+import { getManagerContract, getTokenContract, MANAGER_ADDRESS } from '../services/eth';
 import { ethers } from 'ethers';
 
 const AdminDashboard = () => {
     const [isLoading, setIsLoading] = useState(false);
+    const [status, setStatus] = useState("");
     const [form, setForm] = useState({ name: '', amount: '', slots: '', desc: '' });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.name || !form.amount || !form.slots) return alert("Vui lòng điền đủ thông tin!");
+        if (!form.name || !form.amount || !form.slots) return alert("Nhập đủ thông tin!");
 
         try {
             setIsLoading(true);
-            const contract = await getContract();
-            if (!contract) return alert("Vui lòng kết nối ví MetaMask!");
+            setStatus("Đang kết nối ví...");
 
-            // 1. Xử lý dữ liệu Blockchain
-            const amountWei = ethers.parseEther(form.amount); // Đổi ETH sang Wei (BigInt)
-            const slots = BigInt(form.slots);
+            const manager = await getManagerContract();
+            const token = await getTokenContract();
+            if (!manager || !token) return alert("Chưa kết nối ví!");
+
+            // 1. Tính toán số tiền WCT cần chuyển (đổi sang Wei)
+            const decimals = await token.decimals();
+            const amountWei = ethers.parseUnits(form.amount, decimals);
+            const totalWei = amountWei * BigInt(form.slots);
+
+            // 2. APPROVE (Cấp quyền cho Contract tiêu WCT của bạn)
+            setStatus("B1: Vui lòng xác nhận Approve trên ví...");
+            const txApprove = await token.approve(MANAGER_ADDRESS, totalWei);
+            setStatus("Đang chờ xác nhận Approve...");
+            await txApprove.wait();
+
+            // 3. CREATE (Tạo học bổng và chuyển WCT vào quỹ)
+            setStatus("B2: Vui lòng xác nhận Tạo Học Bổng...");
+            const deadline = BigInt(Math.floor(Date.now() / 1000) + (30 * 86400)); // Hạn 30 ngày
             
-            // Deadline: 30 ngày tính từ hiện tại
-            const deadline = BigInt(Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60));
-
-            // Tổng tiền phải nạp
-            const totalVal = amountWei * slots;
-
-            // 2. Gọi Smart Contract
-            console.log("Đang gửi Transaction...");
-            const tx = await contract.createScholarship(
-                form.name,  
-                amountWei,  
-                slots,      
-                deadline,   
-                { value: totalVal } 
+            const txCreate = await manager.createScholarship(
+                form.name,
+                amountWei,
+                BigInt(form.slots),
+                deadline
             );
-            
-            console.log("Hash:", tx.hash);
-            await tx.wait(); // Chờ xác nhận
-            
-            // 3. Lấy dữ liệu để lưu Backend
-            // Lấy ID vừa tạo (nextId - 1)
-            const nextId = await contract.nextScholarshipId();
-            const currentId = Number(nextId) - 1;
 
-            // Lấy địa chỉ ví người tạo (Sponsor) từ contract runner (Ethers v6)
-            const sponsorAddress = await contract.runner.getAddress();
+            setStatus("Đang ghi vào Blockchain...");
+            await txCreate.wait();
 
-            // 4. Lưu vào MongoDB (CẬP NHẬT THEO SCHEMA MỚI)
-            await createScholarshipDB({
-                contractId: currentId,          // Sửa từ blockchainId -> contractId
-                title: form.name,
-                description: form.desc,
-                sponsor: sponsorAddress,        // Thêm trường sponsor
-                amount: amountWei.toString(),   // Lưu Amount dưới dạng String
-                active: true                    // Mặc định là true
-            });
-
-            alert(`✅ Tạo học bổng thành công! ID: ${currentId}`);
-            
-            // Reset form
+            alert("✅ Tạo học bổng thành công! Quỹ đã được nạp WCT.");
             setForm({ name: '', amount: '', slots: '', desc: '' });
 
         } catch (err) {
             console.error(err);
-            alert("❌ Lỗi: " + (err.reason || err.message));
+            alert("Lỗi: " + (err.reason || err.message));
         } finally {
             setIsLoading(false);
+            setStatus("");
         }
     };
 
     return (
-        <div className="max-w-xl mx-auto mt-16">
-            <div className="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
-                
-                <h2 className="text-3xl font-extrabold text-gray-900 mb-8 flex items-center gap-3">
-                    <span className="text-indigo-600">⚙️ Admin Panel</span>  
-                    <span className="text-gray-700 font-light">/ Tạo Học Bổng</span>
-                </h2>
-
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    
-                    {/* Name */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                            Tên học bổng
-                        </label>
-                        <input
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
-                            placeholder="VD: Học bổng Khuyến Học 2024"
-                            value={form.name}
-                            onChange={e => setForm({ ...form, name: e.target.value })}
-                        />
-                    </div>
-
-                    {/* Amount */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                            Số tiền mỗi suất (ETH)
-                        </label>
-                        <input
-                            type="number" step="0.0001"
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
-                            placeholder="VD: 0.1"
-                            value={form.amount}
-                            onChange={e => setForm({ ...form, amount: e.target.value })}
-                        />
-                    </div>
-
-                    {/* Slots */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                            Số lượng suất
-                        </label>
-                        <input
-                            type="number"
-                            className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
-                            placeholder="VD: 5"
-                            value={form.slots}
-                            onChange={e => setForm({ ...form, slots: e.target.value })}
-                        />
-                    </div>
-
-                    {/* Description */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">
-                            Mô tả chi tiết
-                        </label>
-                        <textarea
-                            className="w-full border border-gray-300 rounded-xl p-3 h-28 focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
-                            placeholder="Điều kiện, đối tượng hưởng..."
-                            value={form.desc}
-                            onChange={e => setForm({ ...form, desc: e.target.value })}
-                        />
-                    </div>
-
-                    {/* Submit Button */}
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className={`
-                            w-full py-3 rounded-xl text-white font-bold text-lg 
-                            shadow-md transition-all duration-300
-                            ${isLoading 
-                                ? 'bg-gray-400 cursor-not-allowed' 
-                                : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 hover:shadow-xl'}
-                        `}
-                    >
-                        {isLoading ? 'Đang xử lý...' : 'Tạo Học Bổng (Gửi ETH)'}
-                    </button>
-
-                </form>
-            </div>
+        <div className="p-6 bg-white rounded-xl shadow-md border border-indigo-100">
+            <h2 className="text-2xl font-bold mb-4 text-indigo-700">Tạo Học Bổng (WCT Coin)</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <input 
+                    className="w-full border p-3 rounded-lg focus:ring-2 ring-indigo-300" 
+                    placeholder="Tên học bổng" 
+                    value={form.name} onChange={e => setForm({...form, name: e.target.value})} 
+                />
+                <div className="flex gap-4">
+                    <input 
+                        type="number" className="w-1/2 border p-3 rounded-lg" placeholder="Số WCT/Suất (VD: 1000)" 
+                        value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} 
+                    />
+                    <input 
+                        type="number" className="w-1/2 border p-3 rounded-lg" placeholder="Số lượng suất" 
+                        value={form.slots} onChange={e => setForm({...form, slots: e.target.value})} 
+                    />
+                </div>
+                <textarea 
+                    className="w-full border p-3 rounded-lg h-24" placeholder="Mô tả chi tiết..."
+                    value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} 
+                />
+                <button 
+                    disabled={isLoading}
+                    className={`w-full py-3 text-white font-bold rounded-lg transition ${isLoading ? 'bg-gray-400' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:shadow-lg'}`}
+                >
+                    {isLoading ? status : "Tạo & Nạp Quỹ WCT"}
+                </button>
+            </form>
         </div>
     );
 };
