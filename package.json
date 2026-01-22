@@ -1,0 +1,65 @@
+{
+  "name": "blockchain-scholarship-backend",
+  "version": "1.0.0",
+  "description": "Backend for Blockchain-based Smart Scholarship Management System",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "deploy:contract": "truffle migrate --network development",
+    "compile:contract": "truffle compile",
+    "seed": "node src/utils/seeder.js",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix"
+  },
+  "keywords": [
+    "blockchain",
+    "scholarship",
+    "smart-contract",
+    "ethereum",
+    "ipfs",
+    "education"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "helmet": "^7.0.0",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^6.10.0",
+    "express-mongo-sanitize": "^2.2.0",
+    "xss-clean": "^0.1.4",
+    "hpp": "^0.2.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "web3": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "ipfs-http-client": "^60.0.0",
+    "nodemailer": "^6.9.4",
+    "crypto": "^1.0.1",
+    "moment": "^2.29.4",
+    "validator": "^13.11.0",
+    "winston": "^3.10.0",
+    "express-winston": "^4.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.6.2",
+    "supertest": "^6.3.3",
+    "eslint": "^8.47.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.28.1",
+    "truffle": "^5.11.0",
+    "@truffle/hdwallet-provider": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
