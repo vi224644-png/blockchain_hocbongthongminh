@@ -1,0 +1,17 @@
+# ===== NodeJS =====
+node_modules/
+**/node_modules/
+
+# ===== Build =====
+dist/
+build/
+
+# ===== Hardhat =====
+artifacts/
+cache/
+
+# ===== Environment =====
+.env
+
+# ===== macOS =====
+.DS_Store
